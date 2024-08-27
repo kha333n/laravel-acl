@@ -1,0 +1,26 @@
+{
+    "name": "kha333n/laravel-acl",
+    "description": "A Laravel package for managing roles, policies, teams, and permissions.",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Kha333n\\LaravelAcl\\": "src/"
+        },
+        "files": [
+            "src/Helpers/helper.php"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Kha333n\\LaravelAcl\\LaravelAclServiceProvider"
+            ]
+        }
+    },
+    "require": {
+        "php": "^8.0",
+        "illuminate/support": "^8.0|^9.0|^10.0"
+    },
+    "minimum-stability": "dev"
+}
