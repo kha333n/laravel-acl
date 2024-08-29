@@ -9,7 +9,7 @@ use Kha333n\LaravelAcl\Exceptions\InvalidPolicyException;
 
 class Policy extends Model
 {
-    protected array $fillable = ['name', 'policy_json', 'description'];
+    protected $fillable = ['name', 'policy_json', 'description'];
 
     public static function boot(): void
     {

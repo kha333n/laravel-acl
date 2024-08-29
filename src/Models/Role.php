@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\MorphToMany;
 
 class Role extends Model
 {
-    protected array $fillable = ['name', 'description'];
+    protected $fillable = ['name', 'description'];
 
     public function policies(): BelongsToMany
     {

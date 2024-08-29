@@ -2,9 +2,12 @@
 
 namespace Kha333n\LaravelAcl\Repositories;
 
+use Carbon\Carbon;
+use Carbon\Exceptions\InvalidFormatException;
+use Exception;
+use IPLib\Factory;
 use Kha333n\LaravelAcl\Exceptions\InvalidPolicyException;
 use Kha333n\LaravelAcl\Models\Resource;
-use Kha333n\LaravelAcl\Models\Team;
 
 class LaravelAclRepository
 {
@@ -23,11 +26,11 @@ class LaravelAclRepository
         }
 
         // Validate the "definition" field
-        if (!isset($policyJson['definition']) || !is_array($policyJson['definition']) || count($policyJson['definition']) < 1) {
-            throw new InvalidPolicyException("The 'definition' array must contain at least one item.");
+        if (!isset($policyJson['definitions']) || !is_array($policyJson['definitions']) || count($policyJson['definitions']) < 1) {
+            throw new InvalidPolicyException("The 'definitions' array must contain at least one item.");
         }
 
-        foreach ($policyJson['definition'] as $def) {
+        foreach ($policyJson['definitions'] as $def) {
             // Validate the "Effect" field
             if (!isset($def['Effect']) || !in_array($def['Effect'], ['Allow', 'Reject'])) {
                 throw new InvalidPolicyException("Invalid or missing 'Effect' in definition. Must be 'Allow' or 'Reject'.");
@@ -44,16 +47,15 @@ class LaravelAclRepository
             }
 
             // Validate the "Teams" field (optional)
-            if (isset($def['Teams'])) {
-                if (!is_array($def['Teams'])) {
-                    throw new InvalidPolicyException("Invalid 'Teams' field. Must be an array.");
+            if (isset($def['TeamMode'])) {
+                if (!in_array($def['TeamMode'], ['session', 'all'])) {
+                    throw new InvalidPolicyException("Invalid or missing 'TeamMode'. Must be 'session' or 'all'.");
                 }
-                $this->validateTeams($def['Teams']);
             }
 
-            // Validate the "Condition" field (optional)
-            if (isset($def['Condition'])) {
-                $this->validateConditions($def['Condition']);
+            // Validate the "Conditions" field (optional)
+            if (isset($def['Conditions'])) {
+                $this->validateConditions($def['Conditions']);
             }
         }
 
@@ -79,27 +81,11 @@ class LaravelAclRepository
         if (!$tempResource) {
             throw new InvalidPolicyException("Resource not found: {$parts[1]}");
         }
+
+        if (!isset($parts[2])) {
+            throw new InvalidPolicyException("Invalid resource format: {$resource}");
+        }
         return true;
-    }
-
-    /**
-     * @throws InvalidPolicyException
-     */
-    private function validateTeams(array $teams): void
-    {
-        if (!isset($teams['mode']) || !in_array($teams['mode'], ['session', 'all'])) {
-            throw new InvalidPolicyException("Invalid or missing 'mode' in Teams. Must be 'session' or 'all'.");
-        }
-
-        if (!isset($teams['appliedTo']) || !is_array($teams['appliedTo'])) {
-            throw new InvalidPolicyException("Invalid 'appliedTo' in Teams. Must be an array of team identifiers.");
-        }
-
-        foreach ($teams['appliedTo'] as $team) {
-            if (!Team::where('name', $team)->exists()) {
-                throw new InvalidPolicyException("Team not found: {$team}");
-            }
-        }
     }
 
     /**
@@ -107,8 +93,8 @@ class LaravelAclRepository
      */
     private function validateConditions(array $conditions): void
     {
-        if (isset($conditions['ip'])) {
-            foreach ($conditions['ip'] as $ip) {
+        if (isset($conditions['ips'])) {
+            foreach ($conditions['ips'] as $ip) {
                 if (!filter_var($ip, FILTER_VALIDATE_IP) && !$this->validateIpRange($ip)) {
                     throw new InvalidPolicyException("Invalid IP address or range: {$ip}");
                 }
@@ -116,14 +102,37 @@ class LaravelAclRepository
         }
 
         if (isset($conditions['time'])) {
-            foreach ($conditions['time'] as $time) {
-                if (!$this->validateTime($time)) {
-                    throw new InvalidPolicyException("Invalid time format: {$time}. Expected format: HH:MM.");
+            if (!$this->validateTime($conditions['time'])) {
+                throw new InvalidPolicyException("Invalid time format: {$conditions['time']}. Expected format: HH:MM. OR dd:mm:yyyy HH:MM, single or range seprated by -.");
+            }
+        }
+
+        // Validate "daysOfWeek"
+        if (isset($conditions['daysOfWeek'])) {
+            if (!is_array($conditions['daysOfWeek'])) {
+                throw new InvalidPolicyException("Invalid 'daysOfWeek' field. Must be an array.");
+            }
+            foreach ($conditions['daysOfWeek'] as $day) {
+                if (!in_array($day, ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'])) {
+                    throw new InvalidPolicyException("Invalid day of week: {$day}");
                 }
             }
         }
 
-        // Add more conditions validations as needed
+        // Validate "User-Agent"
+        if (isset($conditions['User-Agent'])) {
+            if (!is_string($conditions['User-Agent'])) {
+                throw new InvalidPolicyException("Invalid 'User-Agent' field. Must be a string.");
+            }
+        }
+
+        // Validate "resourceAttributes"
+        if (isset($conditions['resourceAttributes'])) {
+            if (!is_array($conditions['resourceAttributes'])) {
+                throw new InvalidPolicyException("Invalid 'resourceAttributes' field. Must be an array.");
+            }
+            $this->validateResourceAttributes($conditions['resourceAttributes']);
+        }
     }
 
     private function validateIpRange(string $ip): bool
@@ -183,77 +192,390 @@ class LaravelAclRepository
 
     private function validateTime(string $time): bool
     {
-        try {
-            // Check for date and time format (e.g., "05:04:2024 06:40")
-            if (preg_match('/^\d{2}:\d{2}:\d{4} \d{2}:\d{2}$/', $time)) {
-                return $this->validateDateTime($time);
+        // Check for single date-time or range of date-time values
+        if (preg_match('/^\d{2}:\d{2}:\d{4} \d{2}:\d{2}(-\d{2}:\d{2}:\d{4} \d{2}:\d{2})?$/', $time)) {
+            return $this->validateDateTime($time);
+        }
+
+        // Check for simple time format or a time range
+        if (preg_match('/^\d{2}:\d{2}(-\d{2}:\d{2})?$/', $time)) {
+            return $this->validateSimpleTime($time);
+        }
+
+        return false;
+    }
+
+    public function validateDateTime(string $datetime): bool
+    {
+        $datetimes = explode('-', $datetime);
+
+        foreach ($datetimes as $singleDateTime) {
+            if (!$this->isValidDateTimeFormat($singleDateTime)) {
+                throw new InvalidFormatException("Invalid datetime format: $datetime");
+            }
+        }
+
+        if (count($datetimes) === 2) {
+            try {
+                $start = Carbon::createFromFormat('d:m:Y H:i', trim($datetimes[0]));
+                $end = Carbon::createFromFormat('d:m:Y H:i', trim($datetimes[1]));
+
+                // Ensure the start and end datetime formats are valid
+                if ($start->format('d:m:Y H:i') !== trim($datetimes[0]) || $end->format('d:m:Y H:i') !== trim($datetimes[1])) {
+                    throw new Exception("Invalid datetime format: $datetime");
+                }
+
+                // Check that the end time is at least 1 minute after the start time
+                if ($start->diffInMinutes($end, false) < 1) {
+                    throw new Exception("End datetime must be at least 1 minute after the start: $datetime");
+                }
+            } catch (InvalidFormatException $e) {
+                throw new InvalidPolicyException("Invalid datetime: " . $e->getMessage());
+            }
+        }
+        return true;
+    }
+
+    private function isValidDateTimeFormat(string $datetime): bool
+    {
+        $parsed = Carbon::createFromFormat('d:m:Y H:i', $datetime);
+        // Ensure that the parsed datetime matches the input and is a valid datetime
+        return $parsed && $parsed->format('d:m:Y H:i') === $datetime;
+    }
+
+    public function validateSimpleTime(string $time): bool
+    {
+        $times = explode('-', $time);
+
+        foreach ($times as $singleTime) {
+            if (!$this->isValidTimeFormat($singleTime)) {
+                throw new InvalidPolicyException("Invalid time format: $time");
+            }
+        }
+
+        if (count($times) === 2) {
+            $start = Carbon::createFromFormat('H:i', trim($times[0]));
+            $end = Carbon::createFromFormat('H:i', trim($times[1]));
+
+            // Ensure the start and end time formats are valid
+            if ($start->format('H:i') !== trim($times[0]) || $end->format('H:i') !== trim($times[1])) {
+                throw new InvalidPolicyException("Invalid time format: $time");
             }
 
-            // Check for simple time format (e.g., "06:40")
-            if (preg_match('/^\d{2}:\d{2}$/', $time)) {
-                return $this->validateSimpleTime($time);
+            if ($start->diffInMinutes($end, false) === 0) {
+                throw new InvalidPolicyException("Start and end times must be different: $time");
+            }
+        }
+
+        return true;
+    }
+
+    private function isValidTimeFormat(string $time): bool
+    {
+        $parsed = Carbon::createFromFormat('H:i', $time);
+
+        // Ensure that the parsed time matches the input and is a valid time
+        return $parsed && $parsed->format('H:i') === $time && $parsed->hour < 24 && $parsed->minute < 60;
+    }
+
+    protected function validateResourceAttributes(array $attributes): void
+    {
+        foreach ($attributes as $attribute => $condition) {
+            if (!is_string($condition)) {
+                throw new InvalidPolicyException("Invalid value for resource attribute '$attribute'. Must be a string.");
             }
 
-            return false; // Invalid format
-        } catch (InvalidFormatException $e) {
+            $parts = explode('::', $condition, 2);
+            if (count($parts) != 2) {
+                throw new InvalidPolicyException("Invalid format for resource attribute '$attribute'. Must be 'keyword::value'.");
+            }
+
+            $keyword = $parts[0];
+            $value = $parts[1];
+
+            if (!in_array($keyword, ['equal', 'include', 'any'])) {
+                throw new InvalidPolicyException("Invalid keyword '$keyword' for resource attribute '$attribute'. Must be 'equal', 'include', or 'any'.");
+            }
+
+            if ($keyword === 'equal' || $keyword === 'include') {
+                // For 'equal' and 'include', value should be a single element
+                if (strpos($value, ',') !== false) {
+                    throw new InvalidPolicyException("Invalid value for '$keyword' condition in resource attribute '$attribute'. Should be a single value, not comma-separated.");
+                }
+            } elseif ($keyword === 'any') {
+                // For 'any', value can be comma-separated
+                $values = explode(',', $value);
+                if (count($values) < 1) {
+                    throw new InvalidPolicyException("Invalid value for 'any' condition in resource attribute '$attribute'. Must contain at least one comma-separated value.");
+                }
+            }
+        }
+    }
+
+    public function isScopeable(string $resource, string $action)
+    {
+        try {
+            $resource = Resource::where('name', $resource)->first();
+
+            if (!$resource) {
+                return false;
+            }
+
+            $action = $resource->actions->where('name', $action)->first();
+
+            if (!$action) {
+                return false;
+            }
+
+            return $action->is_scopeable;
+        } catch (Exception $e) {
             return false;
         }
     }
 
-    private function validateDateTime(string $dateTime): bool
+    public function isAuthorized($user, $resource, $action, $resourceToCheck = null): bool
     {
-        try {
-            Carbon::createFromFormat('d:m:Y H:i', $dateTime);
-            return true;
-        } catch (InvalidFormatException $e) {
+        if (is_object($resourceToCheck)) {
+            $key = $resourceToCheck->getKey();
+        } else {
+            $key = $resourceToCheck;
+        }
+        //TODO: Implement this method
+        $resource = Resource::where('name', $resource)->first();
+
+        if (!$resource) {
             return false;
         }
-    }
 
-    private function validateSimpleTime(string $time): bool
-    {
-        try {
-            Carbon::createFromFormat('H:i', $time);
-            return true;
-        } catch (InvalidFormatException $e) {
+        if ($action !== '*') {
+            $action = $resource->actions->where('name', $action)->first();
+
+            if (!$action) {
+                return false;
+            }
+        }
+
+        $policies = $this->getAllApplicablePolicies($user);
+
+        $statements = $this->getRelevantPoliciesStatements(
+            $resource, is_string($action) ? $action : $action->name,
+            $policies
+        );
+
+        if ($statements->isEmpty()) {
             return false;
         }
-    }
 
-    private function validateTimeRange(string $timeRange): bool
-    {
-        // Split the time range by the '-' character
-        $parts = explode('-', $timeRange);
-        if (count($parts) !== 2) {
-            return false; // Must be exactly two parts
+        // any statement with effect deny will deny access
+        if ($statements->contains('Effect', 'Reject')) {
+            return false;
         }
 
-        // Validate each part
-        $start = trim($parts[0]);
-        $end = trim($parts[1]);
+        if ($action->is_scopeable) {
+            // Iterate over the statements to check the 'Resource' field
+            $statements->contains(function ($statement) use ($resource, $key) {
+                // Extract the resource and key list from the 'Resource' field
+                $resourceKeyList = explode('::', $statement['Resource']);
+                $keys = isset($resourceKeyList[2]) ? $resourceKeyList[2] : '';
 
-        return $this->validateTime($start) && $this->validateTime($end) &&
-            $this->compareTime($start, $end) >= 0;
-    }
+                // Convert the comma-separated list of keys into an array
+                $keysArray = explode(',', $keys);
 
-    private function compareTime(string $time1, string $time2): int
-    {
-        try {
-            $dateTime1 = $this->convertToCarbon($time1);
-            $dateTime2 = $this->convertToCarbon($time2);
-
-            return $dateTime1->gt($dateTime2) ? 1 : ($dateTime1->lt($dateTime2) ? -1 : 0);
-        } catch (InvalidFormatException $e) {
-            return -1; // Indicate invalid time comparison
-        }
-    }
-
-    private function convertToCarbon(string $time): Carbon
-    {
-        if (preg_match('/^\d{2}:\d{2}:\d{4} \d{2}:\d{2}$/', $time)) {
-            return Carbon::createFromFormat('d:m:Y H:i', $time);
+                // Check if the specific key exists in the array
+                if (!in_array($key, $keysArray)) {
+                    return false;
+                }
+            });
         }
 
-        return Carbon::createFromFormat('H:i', $time);
+        // if conditions exists in any statement, check if they are satisfied
+        $mergedConditions = [
+            'ips' => [],
+            'times' => [],
+            'daysOfWeek' => [],
+            'User-Agent' => [],
+            'resourceAttributes' => []
+        ];
+
+        $statements->pluck('Conditions')->each(function ($conditions) use (&$mergedConditions) {
+            if (isset($conditions['ips'])) {
+                $mergedConditions['ips'] = array_merge($mergedConditions['ips'], $conditions['ips']);
+            }
+            if (isset($conditions['time'])) {
+                $mergedConditions['times'][] = $conditions['time'];
+            }
+            if (isset($conditions['daysOfWeek'])) {
+                $mergedConditions['daysOfWeek'] = array_merge($mergedConditions['daysOfWeek'], $conditions['daysOfWeek']);
+            }
+            if (isset($conditions['User-Agent'])) {
+                $mergedConditions['User-Agent'][] = $conditions['User-Agent'];
+            }
+            if (isset($conditions['resourceAttributes'])) {
+                foreach ($conditions['resourceAttributes'] as $attribute => $condition) {
+                    $mergedConditions['resourceAttributes'][$attribute][] = $condition;
+                }
+            }
+        });
+
+        $mergedConditions = collect($mergedConditions);
+
+        // Check if the user's IP address is allowed
+        if (!$this->checkIpIsAllowed($mergedConditions['ips'])) {
+            return false;
+        }
+
+        // Check if the current time is allowed
+        if (!$this->checkTimeIsAllowed($mergedConditions['times'])) {
+            return false;
+        }
+
+        dd('isAuthorized', $mergedConditions, now());
+
+    }
+
+    private function checkTimeIsAllowed($times): bool
+    {
+        $currentDateTime = Carbon::now(); // Get the current date and time
+
+        foreach ($times as $time) {
+            // If the time format is date-time or a date-time range
+            if ($this->validateTime($time)) {
+                if (preg_match('/^\d{2}:\d{2}:\d{4} \d{2}:\d{2}(-\d{2}:\d{2}:\d{4} \d{2}:\d{2})?$/', $time)) {
+                    // Date-time or date-time range case
+                    $datetimes = explode('-', $time);
+
+                    // Single date-time case
+                    if (count($datetimes) === 1) {
+                        $endDateTime = Carbon::createFromFormat('d:m:Y H:i', trim($datetimes[0]));
+                        if ($currentDateTime->lessThanOrEqualTo($endDateTime)) {
+                            return true;
+                        }
+                    } // Date-time range case
+                    elseif (count($datetimes) === 2) {
+                        $startDateTime = Carbon::createFromFormat('d:m:Y H:i', trim($datetimes[0]));
+                        $endDateTime = Carbon::createFromFormat('d:m:Y H:i', trim($datetimes[1]));
+
+                        if ($currentDateTime->between($startDateTime, $endDateTime, true)) {
+                            return true;
+                        }
+                    }
+                } // If the time format is simple time or a time range
+                elseif (preg_match('/^\d{2}:\d{2}(-\d{2}:\d{2})?$/', $time)) {
+                    $times = explode('-', $time);
+
+                    // Single time case
+                    if (count($times) === 1) {
+                        $endTime = Carbon::createFromTimeString(trim($times[0]));
+                        $endDateTime = $currentDateTime->copy()->setTimeFrom($endTime);
+                        if ($currentDateTime->lessThanOrEqualTo($endDateTime)) {
+                            return true;
+                        }
+                    } // Time range case
+                    elseif (count($times) === 2) {
+                        $startTime = Carbon::createFromTimeString(trim($times[0]));
+                        $endTime = Carbon::createFromTimeString(trim($times[1]));
+
+                        $startDateTime = $currentDateTime->copy()->setTimeFrom($startTime);
+                        $endDateTime = $currentDateTime->copy()->setTimeFrom($endTime);
+
+                        // Handle cases where the end time is on the next day
+                        if ($endDateTime->lessThan($startDateTime)) {
+                            $endDateTime->addDay();
+                        }
+
+                        if ($currentDateTime->between($startDateTime, $endDateTime, true)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function checkIpIsAllowed(array $ips): bool
+    {
+        $userIp = request()->ip();
+
+        if (!$userIp) {
+            return false; // Return false if no IP is found
+        }
+
+        // Parse the user's IP address using the IP library
+        $userIpAddress = Factory::parseAddressString($userIp);
+
+        if (!$userIpAddress) {
+            return false; // Return false if the IP could not be parsed
+        }
+
+        foreach ($ips as $ip) {
+            if ($this->validateIpRange($ip)) {
+                // Parse the range using the IP library
+                $ipRange = Factory::parseRangeString($ip);
+
+                if ($ipRange && $ipRange->contains($userIpAddress)) {
+                    return true;
+                }
+            } else {
+                // Single IP case
+                if ($userIp === $ip) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function getAllApplicablePolicies($user)
+    {
+        $directPolicies = $user->policies;
+
+        $policiesViaRoles = $user->roles->map(function ($role) {
+            return $role->policies;
+        })->flatten();
+
+        $policiesViaTeamDirect = $user->teams->map(function ($team) {
+            return $team->policies;
+        })->flatten();
+
+        $policiesViaTeamRoles = $user->teams->map(function ($team) {
+            return $team->roles->map(function ($role) {
+                return $role->policies;
+            })->flatten();
+        })->flatten();
+
+        return collect($directPolicies)
+            ->merge($policiesViaRoles)
+            ->merge($policiesViaTeamDirect)
+            ->merge($policiesViaTeamRoles)
+            // pluck just the policy_json field
+            ->pluck('policy_json')
+            ->map(function ($policyJson) {
+                return json_decode($policyJson, true);
+            });
+    }
+
+    private function getRelevantPoliciesStatements($resource, $action, $policies)
+    {
+        $statements = $policies->map(function ($policy) {
+            return $policy['definitions'];
+        })->pluck('Statement');
+
+        return $statements->filter(function ($statement) use ($resource, $action) {
+            if ($action === '*') {
+                // regex match for resource in this anything::resource::action format
+                return preg_match("/^.+::{$resource->name}::.+$/", $statement['Resource']);
+            } else {
+                if (!is_array($statement['Actions'])) {
+                    return preg_match("/^.+::{$resource->name}::.+$/", $statement['Resource']);
+                }
+                return (
+                    preg_match("/^.+::{$resource->name}::.+$/", $statement['Resource'])
+                    &&
+                    in_array($action, $statement['Actions'])
+                );
+            }
+        });
     }
 }

@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Action extends Model
 {
-    protected array $fillable = ['name', 'is_scopeable', 'resource_id'];
+    protected $fillable = ['name', 'is_scopeable', 'resource_id'];
 
     public function resource(): BelongsTo
     {

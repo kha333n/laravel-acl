@@ -80,10 +80,18 @@ class CreateAclTables extends Migration
             $table->foreignId('role_id')->constrained('roles')->onDelete('cascade');
             $table->timestamps();
         });
+
+        Schema::create('model_has_team', function (Blueprint $table) {
+            $table->id();
+            $table->morphs('model');
+            $table->foreignId('team_id')->constrained('teams')->onDelete('cascade');
+            $table->timestamps();
+        });
     }
 
     public function down(): void
     {
+        Schema::dropIfExists('model_has_team');
         Schema::dropIfExists('model_has_role');
         Schema::dropIfExists('model_has_policy');
         Schema::dropIfExists('team_policy');

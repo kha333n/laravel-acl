@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Resource extends Model
 {
-    protected array $fillable = ['name', 'description'];
+    protected $fillable = ['name', 'description'];
 
     public function actions(): HasMany
     {
