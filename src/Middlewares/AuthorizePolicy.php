@@ -40,12 +40,9 @@ class AuthorizePolicy
                 route using route model bindng. Or use authorizePolicy() helper function for manually passing resource
                 id to authorize.");
             }
-            $key = $model->getKey();
-        } else {
-            $key = null;
         }
 
-        if (!$this->policyRepository->isAuthorized($user, $resource, $action, $key)) {
+        if (!$this->policyRepository->isAuthorized($user, $resource, $action, $user)) {
             abort(403, "You do not have permission to perform this action on the specified resource.");
         }
 

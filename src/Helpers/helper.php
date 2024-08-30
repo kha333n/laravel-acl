@@ -1,6 +1,8 @@
 <?php
 
+use Illuminate\Database\Eloquent\Model;
 use Kha333n\LaravelAcl\Exceptions\InvalidPolicyException;
+use Kha333n\LaravelAcl\Repositories\LaravelAclRepository;
 
 if (!function_exists('laravelAclValidatePolicy')) {
     /**
@@ -16,7 +18,7 @@ if (!function_exists('laravelAclValidatePolicy')) {
             $policyJson = json_decode($policyJson, true);
         }
 
-        $policyRepository = app(\Kha333n\LaravelAcl\Repositories\LaravelAclRepository::class);
+        $policyRepository = app(LaravelAclRepository::class);
 
         $policyRepository->validatePolicyJson($policyJson);
     }
@@ -28,11 +30,11 @@ if (!function_exists('authorizePolicy')) {
      *
      * @param string $resource
      * @param string $action
-     * @param mixed $resourceId <h4>ID to check or Object of resource model. Without object will not check for resourceAttributes.</h4>
-     * @param mixed $authenticatedModel
+     * @param Model|null $resourceToCheck
+     * @param mixed|null $authenticatedModel
      * @return void
      */
-    function authorizePolicy(string $resource, string $action, mixed $resourceId = null, $authenticatedModel = null): void
+    function authorizePolicy(string $resource, string $action, Model $resourceToCheck = null, mixed $authenticatedModel = null): void
     {
         if (!$authenticatedModel) {
             if (Auth::guest()) {
@@ -41,9 +43,9 @@ if (!function_exists('authorizePolicy')) {
             $authenticatedModel = Auth::user();
         }
 
-        $policyRepository = app(\Kha333n\LaravelAcl\Repositories\LaravelAclRepository::class);
+        $policyRepository = app(LaravelAclRepository::class);
 
-        if (!$policyRepository->isAuthorized($authenticatedModel, $resource, $action, $resourceId)) {
+        if (!$policyRepository->isAuthorized($authenticatedModel, $resource, $action, $resourceToCheck)) {
             abort(403, "You do not have permission to perform this action on the specified resource.");
         }
     }

@@ -5,6 +5,7 @@ namespace Kha333n\LaravelAcl\Repositories;
 use Carbon\Carbon;
 use Carbon\Exceptions\InvalidFormatException;
 use Exception;
+use Illuminate\Database\Eloquent\Model;
 use IPLib\Factory;
 use Kha333n\LaravelAcl\Exceptions\InvalidPolicyException;
 use Kha333n\LaravelAcl\Models\Resource;
@@ -333,14 +334,14 @@ class LaravelAclRepository
         }
     }
 
-    public function isAuthorized($user, $resource, $action, $resourceToCheck = null): bool
+    public function isAuthorized($user, $resource, $action, Model $resourceToCheck = null): bool
     {
         if (is_object($resourceToCheck)) {
             $key = $resourceToCheck->getKey();
         } else {
             $key = $resourceToCheck;
         }
-        //TODO: Implement this method
+
         $resource = Resource::where('name', $resource)->first();
 
         if (!$resource) {
@@ -429,8 +430,123 @@ class LaravelAclRepository
             return false;
         }
 
-        dd('isAuthorized', $mergedConditions, now());
+        // Check if the current day of the week is allowed
+        if (count($mergedConditions['daysOfWeek']) > 0) {
+            $currentDayOfWeek = Carbon::now()->format('l');
+            if (!in_array($currentDayOfWeek, $mergedConditions['daysOfWeek'])) {
+                return false;
+            }
+        }
 
+        // Check if the User-Agent is allowed
+        if (count($mergedConditions['User-Agent']) > 0) {
+            $userAgent = request()->header('User-Agent');
+
+            $isAllowed = false;
+            // Loop through each User-Agent condition to check for a match
+            foreach ($mergedConditions['User-Agent'] as $allowedUserAgent) {
+                if (strpos($userAgent, $allowedUserAgent) !== false) {
+                    $isAllowed = true;
+                    break; // Break the loop if a match is found
+                }
+            }
+
+            if (!$isAllowed) {
+                return false;
+            }
+        }
+
+        if ($action->is_scopeable && $resourceToCheck instanceof Model && isset($mergedConditions['resourceAttributes'])) {
+//            dd($this->checkAttributesMatched($mergedConditions['resourceAttributes'], $resourceToCheck));
+            return $this->checkAttributesMatched($mergedConditions['resourceAttributes'], $resourceToCheck);
+        }
+
+        return true;
+    }
+
+    private function getAllApplicablePolicies($user)
+    {
+        $directPolicies = $user->policies;
+
+        $policiesViaRoles = $user->roles->map(function ($role) {
+            return $role->policies;
+        })->flatten();
+
+        $policiesViaTeamDirect = $user->teams->map(function ($team) {
+            return $team->policies;
+        })->flatten();
+
+        $policiesViaTeamRoles = $user->teams->map(function ($team) {
+            return $team->roles->map(function ($role) {
+                return $role->policies;
+            })->flatten();
+        })->flatten();
+
+        return collect($directPolicies)
+            ->merge($policiesViaRoles)
+            ->merge($policiesViaTeamDirect)
+            ->merge($policiesViaTeamRoles)
+            // pluck just the policy_json field
+            ->pluck('policy_json')
+            ->map(function ($policyJson) {
+                return json_decode($policyJson, true);
+            });
+    }
+
+    private function getRelevantPoliciesStatements($resource, $action, $policies)
+    {
+        $statements = $policies->map(function ($policy) {
+            return $policy['definitions'];
+        })->pluck('Statement');
+
+        return $statements->filter(function ($statement) use ($resource, $action) {
+            if ($action === '*') {
+                // regex match for resource in this anything::resource::action format
+                return preg_match("/^.+::{$resource->name}::.+$/", $statement['Resource']);
+            } else {
+                if (!is_array($statement['Actions'])) {
+                    return preg_match("/^.+::{$resource->name}::.+$/", $statement['Resource']);
+                }
+                return (
+                    preg_match("/^.+::{$resource->name}::.+$/", $statement['Resource'])
+                    &&
+                    in_array($action, $statement['Actions'])
+                );
+            }
+        });
+    }
+
+    private function checkIpIsAllowed(array $ips): bool
+    {
+        $userIp = request()->ip();
+
+        if (!$userIp) {
+            return false; // Return false if no IP is found
+        }
+
+        // Parse the user's IP address using the IP library
+        $userIpAddress = Factory::parseAddressString($userIp);
+
+        if (!$userIpAddress) {
+            return false; // Return false if the IP could not be parsed
+        }
+
+        foreach ($ips as $ip) {
+            if ($this->validateIpRange($ip)) {
+                // Parse the range using the IP library
+                $ipRange = Factory::parseRangeString($ip);
+
+                if ($ipRange && $ipRange->contains($userIpAddress)) {
+                    return true;
+                }
+            } else {
+                // Single IP case
+                if ($userIp === $ip) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private function checkTimeIsAllowed($times): bool
@@ -494,88 +610,71 @@ class LaravelAclRepository
         return false;
     }
 
-    private function checkIpIsAllowed(array $ips): bool
+    /**
+     * @param $resourceAttributes
+     * @param Model $resourceToCheck
+     * @return bool
+     */
+    private function checkAttributesMatched($resourceAttributes, Model $resourceToCheck): bool
     {
-        $userIp = request()->ip();
+        $attributes = $resourceAttributes;
 
-        if (!$userIp) {
-            return false; // Return false if no IP is found
-        }
+        $passCheckList = collect();
+        foreach ($attributes as $attribute => $conditions) {
+            // Check if the attribute exists on the model
+            if (!isset($resourceToCheck->$attribute) && !method_exists($resourceToCheck, $attribute)) {
+                continue; // Skip if the attribute does not exist on the model
+            }
+//            dd(isset($resourceToCheck->$attribute), method_exists($resourceToCheck, $attribute), $attribute );
 
-        // Parse the user's IP address using the IP library
-        $userIpAddress = Factory::parseAddressString($userIp);
+            $resourceValue = $resourceToCheck->$attribute;
+            $attributePass = false;
 
-        if (!$userIpAddress) {
-            return false; // Return false if the IP could not be parsed
-        }
+            foreach ($conditions as $condition) {
+                [$operator, $value] = explode('::', $condition, 2);
 
-        foreach ($ips as $ip) {
-            if ($this->validateIpRange($ip)) {
-                // Parse the range using the IP library
-                $ipRange = Factory::parseRangeString($ip);
+                switch ($operator) {
+                    case 'equal':
+                        if ($resourceValue == $value) {
+                            $attributePass = true;
+                        }
+                        break;
 
-                if ($ipRange && $ipRange->contains($userIpAddress)) {
-                    return true;
+                    case 'include':
+                        if (is_string($resourceValue) && strpos($resourceValue, $value) !== false) {
+                            $attributePass = true;
+                        }
+                        break;
+
+                    case 'any':
+                        $valueList = explode(',', $value);
+                        if (in_array($resourceValue, $valueList)) {
+                            $attributePass = true;
+                        }
+                        break;
+
+                    default:
+                        // Handle unexpected operators if needed
+                        break;
                 }
-            } else {
-                // Single IP case
-                if ($userIp === $ip) {
-                    return true;
+
+                // If one condition passes for this attribute, no need to check further conditions
+                if ($attributePass) {
+                    break;
                 }
             }
-        }
-        return false;
-    }
-
-    private function getAllApplicablePolicies($user)
-    {
-        $directPolicies = $user->policies;
-
-        $policiesViaRoles = $user->roles->map(function ($role) {
-            return $role->policies;
-        })->flatten();
-
-        $policiesViaTeamDirect = $user->teams->map(function ($team) {
-            return $team->policies;
-        })->flatten();
-
-        $policiesViaTeamRoles = $user->teams->map(function ($team) {
-            return $team->roles->map(function ($role) {
-                return $role->policies;
-            })->flatten();
-        })->flatten();
-
-        return collect($directPolicies)
-            ->merge($policiesViaRoles)
-            ->merge($policiesViaTeamDirect)
-            ->merge($policiesViaTeamRoles)
-            // pluck just the policy_json field
-            ->pluck('policy_json')
-            ->map(function ($policyJson) {
-                return json_decode($policyJson, true);
-            });
-    }
-
-    private function getRelevantPoliciesStatements($resource, $action, $policies)
-    {
-        $statements = $policies->map(function ($policy) {
-            return $policy['definitions'];
-        })->pluck('Statement');
-
-        return $statements->filter(function ($statement) use ($resource, $action) {
-            if ($action === '*') {
-                // regex match for resource in this anything::resource::action format
-                return preg_match("/^.+::{$resource->name}::.+$/", $statement['Resource']);
+            if ($attributePass) {
+                $passCheckList->push(true);
             } else {
-                if (!is_array($statement['Actions'])) {
-                    return preg_match("/^.+::{$resource->name}::.+$/", $statement['Resource']);
-                }
-                return (
-                    preg_match("/^.+::{$resource->name}::.+$/", $statement['Resource'])
-                    &&
-                    in_array($action, $statement['Actions'])
-                );
+                $passCheckList->push(false);
             }
-        });
+        }
+
+        // If no conditions passed for this attribute, return false
+        if ($passCheckList->contains(false)) {
+            return false;
+        }
+
+        return true;
     }
 }
