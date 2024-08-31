@@ -23,34 +23,34 @@ class LaravelAclRepository
     {
         // Validate the "Version" field
         if (!isset($policyJson['Version'])) {
-            throw new InvalidPolicyException("Invalid or missing 'Version' field.");
+            throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.version_missing'));
         }
 
         // Validate the "definition" field
         if (!isset($policyJson['definitions']) || !is_array($policyJson['definitions']) || count($policyJson['definitions']) < 1) {
-            throw new InvalidPolicyException("The 'definitions' array must contain at least one item.");
+            throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.definition_array_min_items'));
         }
 
         foreach ($policyJson['definitions'] as $def) {
             // Validate the "Effect" field
             if (!isset($def['Effect']) || !in_array($def['Effect'], ['Allow', 'Reject'])) {
-                throw new InvalidPolicyException("Invalid or missing 'Effect' in definition. Must be 'Allow' or 'Reject'.");
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_effect_key'));
             }
 
             // Validate the "Actions" field
             if (!isset($def['Actions']) || (!is_array($def['Actions']) && $def['Actions'] !== '*')) {
-                throw new InvalidPolicyException("Invalid 'Actions' field. Must be '*' or an array of actions.");
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_actions_key'));
             }
 
             // Validate the "Resource" field
-            if (!isset($def['Resource']) || !$this->validateResource($def['Resource'])) {
-                throw new InvalidPolicyException("Invalid 'Resource' field.");
+            if (!isset($def['Resource']) || !$this->validateResource($def['Resource'], $def['Actions'])) {
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_resource_key'));
             }
 
             // Validate the "Teams" field (optional)
             if (isset($def['TeamMode'])) {
                 if (!in_array($def['TeamMode'], ['session', 'all'])) {
-                    throw new InvalidPolicyException("Invalid or missing 'TeamMode'. Must be 'session' or 'all'.");
+                    throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_or_missing_team_mode'));
                 }
             }
 
@@ -66,25 +66,29 @@ class LaravelAclRepository
     /**
      * @throws InvalidPolicyException
      */
-    private function validateResource($resource): bool
+    private function validateResource($resource, $actions): bool
     {
         $prefix = config('laravel-acl.prefix');
         $parts = explode('::', $resource);
         if (count($parts) !== 3) {
-            throw new InvalidPolicyException("Invalid resource format: {$resource}");
+            throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_resource_format', ['resource' => $resource]));
         }
         if ($parts[0] !== $prefix) {
-            throw new InvalidPolicyException("Invalid resource prefix: {$parts[0]}. Expected: {$prefix}");
+            throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_resource_parts', ['part' => $parts[0], 'prefix' => $prefix]));
         }
 
         $tempResource = Resource::where('name', $parts[1])->first();
 
         if (!$tempResource) {
-            throw new InvalidPolicyException("Resource not found: {$parts[1]}");
+            throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.resource_not_found', ['resource' => $parts[1]]));
+        }
+
+        if ($actions !== '*' && !$tempResource->actions->whereIn('name', $actions)->count()) {
+            throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_actions_for_resource', ['resource' => $parts[1]]));
         }
 
         if (!isset($parts[2])) {
-            throw new InvalidPolicyException("Invalid resource format: {$resource}");
+            throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_resource_scopes', ['resource' => $parts[1]]));
         }
         return true;
     }
@@ -97,25 +101,25 @@ class LaravelAclRepository
         if (isset($conditions['ips'])) {
             foreach ($conditions['ips'] as $ip) {
                 if (!filter_var($ip, FILTER_VALIDATE_IP) && !$this->validateIpRange($ip)) {
-                    throw new InvalidPolicyException("Invalid IP address or range: {$ip}");
+                    throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_ips', ['ip' => $ip]));
                 }
             }
         }
 
         if (isset($conditions['time'])) {
             if (!$this->validateTime($conditions['time'])) {
-                throw new InvalidPolicyException("Invalid time format: {$conditions['time']}. Expected format: HH:MM. OR dd:mm:yyyy HH:MM, single or range seprated by -.");
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_time', ['time' => $conditions['time']]));
             }
         }
 
         // Validate "daysOfWeek"
         if (isset($conditions['daysOfWeek'])) {
             if (!is_array($conditions['daysOfWeek'])) {
-                throw new InvalidPolicyException("Invalid 'daysOfWeek' field. Must be an array.");
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_days_of_week'));
             }
             foreach ($conditions['daysOfWeek'] as $day) {
                 if (!in_array($day, ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'])) {
-                    throw new InvalidPolicyException("Invalid day of week: {$day}");
+                    throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_day', ['day' => $day]));
                 }
             }
         }
@@ -123,14 +127,14 @@ class LaravelAclRepository
         // Validate "User-Agent"
         if (isset($conditions['User-Agent'])) {
             if (!is_string($conditions['User-Agent'])) {
-                throw new InvalidPolicyException("Invalid 'User-Agent' field. Must be a string.");
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_user_agent'));
             }
         }
 
         // Validate "resourceAttributes"
         if (isset($conditions['resourceAttributes'])) {
             if (!is_array($conditions['resourceAttributes'])) {
-                throw new InvalidPolicyException("Invalid 'resourceAttributes' field. Must be an array.");
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_resource_attributes'));
             }
             $this->validateResourceAttributes($conditions['resourceAttributes']);
         }
@@ -191,6 +195,9 @@ class LaravelAclRepository
         return strcmp($packedIp1, $packedIp2);
     }
 
+    /**
+     * @throws InvalidPolicyException
+     */
     private function validateTime(string $time): bool
     {
         // Check for single date-time or range of date-time values
@@ -206,13 +213,16 @@ class LaravelAclRepository
         return false;
     }
 
-    public function validateDateTime(string $datetime): bool
+    /**
+     * @throws InvalidPolicyException
+     */
+    private function validateDateTime(string $datetime): bool
     {
         $datetimes = explode('-', $datetime);
 
         foreach ($datetimes as $singleDateTime) {
             if (!$this->isValidDateTimeFormat($singleDateTime)) {
-                throw new InvalidFormatException("Invalid datetime format: $datetime");
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_time', ['time' => $datetime]));
             }
         }
 
@@ -223,15 +233,15 @@ class LaravelAclRepository
 
                 // Ensure the start and end datetime formats are valid
                 if ($start->format('d:m:Y H:i') !== trim($datetimes[0]) || $end->format('d:m:Y H:i') !== trim($datetimes[1])) {
-                    throw new Exception("Invalid datetime format: $datetime");
+                    throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_time', ['time' => $datetime]));
                 }
 
                 // Check that the end time is at least 1 minute after the start time
                 if ($start->diffInMinutes($end, false) < 1) {
-                    throw new Exception("End datetime must be at least 1 minute after the start: $datetime");
+                    throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_datetime_end', ['datetime' => $datetime]));
                 }
             } catch (InvalidFormatException $e) {
-                throw new InvalidPolicyException("Invalid datetime: " . $e->getMessage());
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_time', ['time' => $datetime]));
             }
         }
         return true;
@@ -244,13 +254,16 @@ class LaravelAclRepository
         return $parsed && $parsed->format('d:m:Y H:i') === $datetime;
     }
 
-    public function validateSimpleTime(string $time): bool
+    /**
+     * @throws InvalidPolicyException
+     */
+    private function validateSimpleTime(string $time): bool
     {
         $times = explode('-', $time);
 
         foreach ($times as $singleTime) {
             if (!$this->isValidTimeFormat($singleTime)) {
-                throw new InvalidPolicyException("Invalid time format: $time");
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_time', ['time' => $time]));
             }
         }
 
@@ -260,11 +273,11 @@ class LaravelAclRepository
 
             // Ensure the start and end time formats are valid
             if ($start->format('H:i') !== trim($times[0]) || $end->format('H:i') !== trim($times[1])) {
-                throw new InvalidPolicyException("Invalid time format: $time");
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_time', ['time' => $time]));
             }
 
             if ($start->diffInMinutes($end, false) === 0) {
-                throw new InvalidPolicyException("Start and end times must be different: $time");
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.start_end_time_same', ['time' => $time]));
             }
         }
 
@@ -279,35 +292,38 @@ class LaravelAclRepository
         return $parsed && $parsed->format('H:i') === $time && $parsed->hour < 24 && $parsed->minute < 60;
     }
 
-    protected function validateResourceAttributes(array $attributes): void
+    /**
+     * @throws InvalidPolicyException
+     */
+    private function validateResourceAttributes(array $attributes): void
     {
         foreach ($attributes as $attribute => $condition) {
             if (!is_string($condition)) {
-                throw new InvalidPolicyException("Invalid value for resource attribute '$attribute'. Must be a string.");
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_value_for_resource_attribute', ['attribute' => $attribute]));
             }
 
             $parts = explode('::', $condition, 2);
             if (count($parts) != 2) {
-                throw new InvalidPolicyException("Invalid format for resource attribute '$attribute'. Must be 'keyword::value'.");
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_format_for_resource_attribute', ['attribute' => $attribute]));
             }
 
             $keyword = $parts[0];
             $value = $parts[1];
 
             if (!in_array($keyword, ['equal', 'include', 'any'])) {
-                throw new InvalidPolicyException("Invalid keyword '$keyword' for resource attribute '$attribute'. Must be 'equal', 'include', or 'any'.");
+                throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_operator_for_resource_attribute', ['attribute' => $attribute]));
             }
 
             if ($keyword === 'equal' || $keyword === 'include') {
                 // For 'equal' and 'include', value should be a single element
                 if (strpos($value, ',') !== false) {
-                    throw new InvalidPolicyException("Invalid value for '$keyword' condition in resource attribute '$attribute'. Should be a single value, not comma-separated.");
+                    throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_operator_value_for_resource_attribute', ['keyword' => $keyword, 'attribute' => $attribute]));
                 }
             } elseif ($keyword === 'any') {
                 // For 'any', value can be comma-separated
                 $values = explode(',', $value);
                 if (count($values) < 1) {
-                    throw new InvalidPolicyException("Invalid value for 'any' condition in resource attribute '$attribute'. Must contain at least one comma-separated value.");
+                    throw new InvalidPolicyException(__('laravel-acl::laravel_acl_languages.invalid_operator_value_for_resource_attribute_any', ['keyword' => $keyword, 'attribute' => $attribute]));
                 }
             }
         }
@@ -372,53 +388,10 @@ class LaravelAclRepository
             return false;
         }
 
-        if ($action->is_scopeable) {
-            // Iterate over the statements to check the 'Resource' field
-            $statements->contains(function ($statement) use ($resource, $key) {
-                // Extract the resource and key list from the 'Resource' field
-                $resourceKeyList = explode('::', $statement['Resource']);
-                $keys = isset($resourceKeyList[2]) ? $resourceKeyList[2] : '';
-
-                // Convert the comma-separated list of keys into an array
-                $keysArray = explode(',', $keys);
-
-                // Check if the specific key exists in the array
-                if (!in_array($key, $keysArray)) {
-                    return false;
-                }
-            });
+        if (!$this->scopeToResource($action, $statements, $resource, $key)) {
+            return false;
         }
-
-        // if conditions exists in any statement, check if they are satisfied
-        $mergedConditions = [
-            'ips' => [],
-            'times' => [],
-            'daysOfWeek' => [],
-            'User-Agent' => [],
-            'resourceAttributes' => []
-        ];
-
-        $statements->pluck('Conditions')->each(function ($conditions) use (&$mergedConditions) {
-            if (isset($conditions['ips'])) {
-                $mergedConditions['ips'] = array_merge($mergedConditions['ips'], $conditions['ips']);
-            }
-            if (isset($conditions['time'])) {
-                $mergedConditions['times'][] = $conditions['time'];
-            }
-            if (isset($conditions['daysOfWeek'])) {
-                $mergedConditions['daysOfWeek'] = array_merge($mergedConditions['daysOfWeek'], $conditions['daysOfWeek']);
-            }
-            if (isset($conditions['User-Agent'])) {
-                $mergedConditions['User-Agent'][] = $conditions['User-Agent'];
-            }
-            if (isset($conditions['resourceAttributes'])) {
-                foreach ($conditions['resourceAttributes'] as $attribute => $condition) {
-                    $mergedConditions['resourceAttributes'][$attribute][] = $condition;
-                }
-            }
-        });
-
-        $mergedConditions = collect($mergedConditions);
+        $mergedConditions = $this->getMergedConditions($statements);
 
         // Check if the user's IP address is allowed
         if (!$this->checkIpIsAllowed($mergedConditions['ips'])) {
@@ -457,7 +430,6 @@ class LaravelAclRepository
         }
 
         if ($action->is_scopeable && $resourceToCheck instanceof Model && isset($mergedConditions['resourceAttributes'])) {
-//            dd($this->checkAttributesMatched($mergedConditions['resourceAttributes'], $resourceToCheck));
             return $this->checkAttributesMatched($mergedConditions['resourceAttributes'], $resourceToCheck);
         }
 
@@ -472,15 +444,32 @@ class LaravelAclRepository
             return $role->policies;
         })->flatten();
 
-        $policiesViaTeamDirect = $user->teams->map(function ($team) {
-            return $team->policies;
-        })->flatten();
+        if (config('laravel-acl.teams.enabled')) {
+            $teamId = session()->has('team_id') ? session('team_id') : null;
 
-        $policiesViaTeamRoles = $user->teams->map(function ($team) {
-            return $team->roles->map(function ($role) {
-                return $role->policies;
+            $policiesViaTeamDirect = $user->teams->map(function ($team) use ($teamId) {
+                return $team->policies->filter(function ($policy) use ($team, $teamId) {
+                    // Include the policy if it's in 'all' mode or if it's in 'session' mode and the team ID matches
+                    return !isset($policy['TeamMode']) ||
+                        $policy['TeamMode'] === 'all' ||
+                        ($policy['TeamMode'] === 'session' && $team->id == $teamId);
+                });
             })->flatten();
-        })->flatten();
+
+            $policiesViaTeamRoles = $user->teams->map(function ($team) use ($teamId) {
+                return $team->roles->map(function ($role) use ($team, $teamId) {
+                    return $role->policies->filter(function ($policy) use ($team, $teamId) {
+                        // Apply the same filtering logic as above
+                        return !isset($policy['TeamMode']) ||
+                            $policy['TeamMode'] === 'all' ||
+                            ($policy['TeamMode'] === 'session' && $team->id == $teamId);
+                    });
+                })->flatten();
+            })->flatten();
+        } else {
+            $policiesViaTeamDirect = collect();
+            $policiesViaTeamRoles = collect();
+        }
 
         return collect($directPolicies)
             ->merge($policiesViaRoles)
@@ -514,6 +503,73 @@ class LaravelAclRepository
                 );
             }
         });
+    }
+
+    /**
+     * @param $action
+     * @param $statements
+     * @param Resource $resource
+     * @param $key
+     * @return bool
+     */
+    private function scopeToResource($action, $statements, Resource $resource, $key): bool
+    {
+        if ($action->is_scopeable) {
+            // Iterate over the statements to check the 'Resource' field
+            $statements->contains(function ($statement) use ($resource, $key) {
+                // Extract the resource and key list from the 'Resource' field
+                $resourceKeyList = explode('::', $statement['Resource']);
+                $keys = isset($resourceKeyList[2]) ? $resourceKeyList[2] : '';
+
+                // Convert the comma-separated list of keys into an array
+                $keysArray = explode(',', $keys);
+
+                // Check if the specific key exists in the array
+                if (!in_array($key, $keysArray)) {
+                    return false;
+                }
+            });
+        }
+        return true;
+    }
+
+    /**
+     * @param mixed $statements
+     * @return \Illuminate\Support\Collection
+     */
+    private function getMergedConditions(mixed $statements): \Illuminate\Support\Collection
+    {
+        // if conditions exists in any statement, check if they are satisfied
+        $mergedConditions = [
+            'ips' => [],
+            'times' => [],
+            'daysOfWeek' => [],
+            'User-Agent' => [],
+            'resourceAttributes' => []
+        ];
+
+        $statements->pluck('Conditions')->each(function ($conditions) use (&$mergedConditions) {
+            if (isset($conditions['ips'])) {
+                $mergedConditions['ips'] = array_merge($mergedConditions['ips'], $conditions['ips']);
+            }
+            if (isset($conditions['time'])) {
+                $mergedConditions['times'][] = $conditions['time'];
+            }
+            if (isset($conditions['daysOfWeek'])) {
+                $mergedConditions['daysOfWeek'] = array_merge($mergedConditions['daysOfWeek'], $conditions['daysOfWeek']);
+            }
+            if (isset($conditions['User-Agent'])) {
+                $mergedConditions['User-Agent'][] = $conditions['User-Agent'];
+            }
+            if (isset($conditions['resourceAttributes'])) {
+                foreach ($conditions['resourceAttributes'] as $attribute => $condition) {
+                    $mergedConditions['resourceAttributes'][$attribute][] = $condition;
+                }
+            }
+        });
+
+        $mergedConditions = collect($mergedConditions);
+        return $mergedConditions;
     }
 
     private function checkIpIsAllowed(array $ips): bool
@@ -625,7 +681,6 @@ class LaravelAclRepository
             if (!isset($resourceToCheck->$attribute) && !method_exists($resourceToCheck, $attribute)) {
                 continue; // Skip if the attribute does not exist on the model
             }
-//            dd(isset($resourceToCheck->$attribute), method_exists($resourceToCheck, $attribute), $attribute );
 
             $resourceValue = $resourceToCheck->$attribute;
             $attributePass = false;
@@ -641,7 +696,7 @@ class LaravelAclRepository
                         break;
 
                     case 'include':
-                        if (is_string($resourceValue) && strpos($resourceValue, $value) !== false) {
+                        if (is_string($resourceValue) && (strpos($resourceValue, $value) !== false)) {
                             $attributePass = true;
                         }
                         break;

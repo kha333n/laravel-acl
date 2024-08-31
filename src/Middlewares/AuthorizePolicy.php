@@ -31,19 +31,17 @@ class AuthorizePolicy
     {
         $user = Auth::user();
 
-        // If resource is scopeable, get the model from route model binding or throw an exception
+        // If the resource is scopeable, get the model from route model binding or throw an exception
         if ($this->policyRepository->isScopeable($resource, $action)) {
             $model = $request->route($resource);
 
             if (!$model) {
-                throw new UnauthorizedException("For scopeable actions, the specified resource must be provided in the
-                route using route model bindng. Or use authorizePolicy() helper function for manually passing resource
-                id to authorize.");
+                throw new UnauthorizedException(__("laravel-acl::laravel_acl_languages.model_not_found"));
             }
         }
 
         if (!$this->policyRepository->isAuthorized($user, $resource, $action, $user)) {
-            abort(403, "You do not have permission to perform this action on the specified resource.");
+            abort(403, __("laravel-acl::laravel_acl_languages.no_permission"));
         }
 
         return $next($request);

@@ -38,7 +38,7 @@ if (!function_exists('authorizePolicy')) {
     {
         if (!$authenticatedModel) {
             if (Auth::guest()) {
-                abort(403, "You do not have permission to perform this action on the specified resource.");
+                abort(403, __("laravel-acl::laravel_acl_languages.no_permission"));
             }
             $authenticatedModel = Auth::user();
         }
@@ -46,7 +46,7 @@ if (!function_exists('authorizePolicy')) {
         $policyRepository = app(LaravelAclRepository::class);
 
         if (!$policyRepository->isAuthorized($authenticatedModel, $resource, $action, $resourceToCheck)) {
-            abort(403, "You do not have permission to perform this action on the specified resource.");
+            abort(403, __("laravel-acl::laravel_acl_languages.no_permission"));
         }
     }
 }

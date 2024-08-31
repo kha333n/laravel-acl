@@ -20,6 +20,12 @@ class LaravelAclServiceProvider extends ServiceProvider
         ], 'config');
 
         $this->mergeConfigFrom(__DIR__ . '/../config/laravel-acl.php', 'laravel-acl');
+
+        $this->loadTranslationsFrom(__DIR__ . '/../resources/lang', 'laravel-acl');
+
+        $this->publishes([
+            __DIR__ . '/../resources/lang' => resource_path('lang/vendor/laravel-acl'),
+        ], 'translations');
     }
 
     public function register(): void
