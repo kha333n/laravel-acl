@@ -12,12 +12,13 @@ interface AclInterface
      * @example ['name' => 'users', 'description' => 'User resource']
      */
     #[ArrayShape(['name' => "string", 'description' => "string"])]
-    public function getResourceName(): array;
+    public static function getResourceName(): array;
 
     /**
      * Define the actions for the resource
      * @return array
-     * @example ['create', 'read', 'update', 'delete']
+     * @example [['action' => 'create', 'description' => 'Create user'], ['action' => 'read', 'description' => 'Read user'], ['action' => 'update', 'description' => 'Update user'], ['action' => 'delete', 'description' => 'Delete user']]
      */
-    public function getActions(): array;
+    #[ArrayShape([['action' => "string", 'description' => "string", 'is_scopeable' => "bool"]])]
+    public static function getActions(): array;
 }

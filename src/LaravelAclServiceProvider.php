@@ -3,6 +3,7 @@
 namespace Kha333n\LaravelAcl;
 
 use Illuminate\Support\ServiceProvider;
+use Kha333n\LaravelAcl\Console\Commands\UpdateResourcesAndActions;
 use Kha333n\LaravelAcl\Repositories\LaravelAclRepository;
 
 class LaravelAclServiceProvider extends ServiceProvider
@@ -33,5 +34,9 @@ class LaravelAclServiceProvider extends ServiceProvider
         $this->app->bind(
             LaravelAclRepository::class
         );
+
+        $this->commands([
+            UpdateResourcesAndActions::class,
+        ]);
     }
 }
