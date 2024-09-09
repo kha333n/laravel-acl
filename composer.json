@@ -3,6 +3,12 @@
     "description": "A Laravel package for managing roles, policies, teams, and permissions.",
     "type": "library",
     "license": "MIT",
+    "authors": [
+        {
+            "name": "kha333n",
+            "email": "kha333n@gmail.com"
+        }
+    ],
     "autoload": {
         "psr-4": {
             "Kha333n\\LaravelAcl\\": "src/"
@@ -23,5 +29,5 @@
         "illuminate/support": "^8.0|^9.0|^10.0",
         "mlocati/ip-lib": "^1.18.0"
     },
-    "minimum-stability": "dev"
+    "minimum-stability": "stable"
 }
