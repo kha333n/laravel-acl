@@ -42,4 +42,24 @@ class Policy extends Model
     {
         return $this->morphedByMany(Model::class, 'model', 'model_has_policy');
     }
+
+    public function assignRole(Role $role): void
+    {
+        $this->roles()->syncWithoutDetaching([$role->id]);
+    }
+
+    public function assignTeam(Team $team): void
+    {
+        $this->teams()->syncWithoutDetaching([$team->id]);
+    }
+
+    public function revokeRole(Role $role): void
+    {
+        $this->roles()->detach($role);
+    }
+
+    public function revokeTeam(Team $team): void
+    {
+        $this->teams()->detach($team);
+    }
 }
