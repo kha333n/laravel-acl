@@ -443,7 +443,236 @@ It is highly flexible for simplest to complex systems.
 
 ## Examples
 
+1. **Simple Permission:**
+```json
+{
+    "name": "edit-books", 
+    "policy_json": {
+        "Version": "V1",
+        "definitions": [
+            {
+                "Statement": {
+                    "Effect": "Allow",
+                    "Actions": [
+                        "create"
+                    ],
+                    "Resource": "acl::books::*",
+                    "Conditions": {}
+                }
+            }
+        ]
+    },
+    "description": "Allow to create books"
+}
+```
 
+2. **Complex Permission: Borrow only when available**
+```json
+{
+    "name": "borrow-books", 
+    "policy_json": {
+        "Version": "V1",
+        "definitions": [
+            {
+                "Statement": {
+                    "Effect": "Allow",
+                    "Actions": [
+                        "borrow"
+                    ],
+                    "Resource": "acl::books::*",
+                    "Conditions": {
+                        "resourceAttributes": {
+                            "status": "equal::available"
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "description": "Allow to borrow books"
+}
+```
+
+3. **Complex Permission: Borrow only when available and user has not borrowed more than 5 books**
+```json
+{
+    "name": "borrow-books",
+    "policy_json": {
+        "Version": "V1",
+        "definitions": [
+            {
+                "Statement": {
+                    "Effect": "Allow",
+                    "Actions": [
+                        "borrow"
+                    ],
+                    "Resource": "acl::books::*",
+                    "Conditions": {
+                        "resourceAttributes": {
+                            "status": "equal::available"
+                        }
+                    }
+                }
+            },
+            {
+                "Statement": {
+                    "Effect": "Deny",
+                    "Actions": [
+                        "borrow"
+                    ],
+                    "Resource": "acl::user::*",
+                    "Conditions": {
+                        "resourceAttributes": {
+                            "borrowed_books": "equal::5"
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "description": "Allow to borrow books"
+}
+```
+
+4. **Complex Permission: Issue book only on week days**
+```json
+{
+    "name": "issue-books",
+    "policy_json": {
+        "Version": "V1",
+        "definitions": [
+            {
+                "Statement": {
+                    "Effect": "Allow",
+                    "Actions": [
+                        "issue"
+                    ],
+                    "Resource": "acl::books::*",
+                    "Conditions": {
+                        "daysOfWeek": [
+                            "Monday",
+                            "Tuesday",
+                            "Wednesday",
+                            "Thursday",
+                            "Friday"
+                        ]
+                    }
+                }
+            }
+        ]
+    },
+    "description": "Allow to issue books"
+}
+```
+
+5. **Complex Permission: Issue book only on week days and between 09:00 to 17:00**
+```json
+{
+    "name": "issue-books",
+    "policy_json": {
+        "Version": "V1",
+        "definitions": [
+            {
+                "Statement": {
+                    "Effect": "Allow",
+                    "Actions": [
+                        "issue"
+                    ],
+                    "Resource": "acl::books::*",
+                    "Conditions": {
+                        "daysOfWeek": [
+                            "Monday",
+                            "Tuesday",
+                            "Wednesday",
+                            "Thursday",
+                            "Friday"
+                        ],
+                        "time": "09:00-17:00"
+                    }
+                }
+            }
+        ]
+    },
+    "description": "Allow to issue books"
+}
+```
+
+6. **Complex Permission: Allow librarian to issue books to students only**
+```json
+{
+    "name": "issue-books",
+    "policy_json": {
+        "Version": "V1",
+        "definitions": [
+            {
+                "Statement": {
+                    "Effect": "Allow",
+                    "Actions": [
+                        "issue"
+                    ],
+                    "Resource": "acl::books::*",
+                    "Conditions": {
+                        "resourceAttributes": {
+                            "type": "include::student"
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "description": "Allow to issue books"
+}
+```
+
+7. **Complex Permission: Allow librarian to manage library only on library network**
+```json
+{
+    "name": "manage-library",
+    "policy_json": {
+        "Version": "V1",
+        "definitions": [
+            {
+                "Statement": {
+                    "Effect": "Allow",
+                    "Actions": [
+                        "manage"
+                    ],
+                    "Resource": "acl::library::*",
+                    "Conditions": {
+                        "ips": [
+                            "10.11.12.13",
+                           ]
+                    }
+                }
+            }
+        ]
+    },
+    "description": "Allow to manage library"
+}
+```
+
+8. **Complex Permission: Allow a user to edit only users with ids 1, 4, 5, 198**
+```json
+{
+    "name": "edit-users",
+    "policy_json": {
+        "Version": "V1",
+        "definitions": [
+            {
+                "Statement": {
+                    "Effect": "Allow",
+                    "Actions": [
+                        "edit"
+                    ],
+                    "Resource": "acl::users::1,4,5,198",
+                    "Conditions": {}
+                }
+            }
+        ]
+    },
+    "description": "Allow to edit users"
+}
+```
 
 [//]: # (testing:)
 
