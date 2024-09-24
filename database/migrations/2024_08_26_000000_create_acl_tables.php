@@ -43,6 +43,7 @@ class CreateAclTables extends Migration
             $table->boolean('is_scopeable')->default(false);
             $table->foreignId('resource_id')->constrained('resources')->onDelete('cascade');
             $table->unique(['name', 'resource_id']);
+            $table->string('description')->nullable();
             $table->timestamps();
         });
 
