@@ -34,11 +34,11 @@ if (!function_exists('authorizePolicy')) {
      * @param mixed|null $authenticatedModel
      * @return void
      */
-    function authorizePolicy(string $resource, string $action, Model $resourceToCheck = null, mixed $authenticatedModel = null): void
+    function authorizePolicy(string $resource, string $action, Model $resourceToCheck = null, mixed $authenticatedModel = null): bool
     {
         if (!$authenticatedModel) {
             if (Auth::guest()) {
-                abort(403, __("laravel-acl::laravel_acl_languages.no_permission"));
+                return false;
             }
             $authenticatedModel = Auth::user();
         }
@@ -46,7 +46,9 @@ if (!function_exists('authorizePolicy')) {
         $policyRepository = app(LaravelAclRepository::class);
 
         if (!$policyRepository->isAuthorized($authenticatedModel, $resource, $action, $resourceToCheck)) {
-            abort(403, __("laravel-acl::laravel_acl_languages.no_permission"));
+            return false;
         }
+
+        return true;
     }
 }
