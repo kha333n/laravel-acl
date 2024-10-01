@@ -378,7 +378,6 @@ class LaravelAclRepository
             $resource, is_string($action) ? $action : $action->name,
             $policies
         );
-
         if ($statements->isEmpty()) {
             return false;
         }
@@ -388,18 +387,18 @@ class LaravelAclRepository
             return false;
         }
 
-        if (!$this->scopeToResource($action, $statements, $resource, $key)) {
+        if (!$this->scopeToResource($action, $statements, $resource, $key, $user)) {
             return false;
         }
         $mergedConditions = $this->getMergedConditions($statements);
 
         // Check if the user's IP address is allowed
-        if (!$this->checkIpIsAllowed($mergedConditions['ips'])) {
+        if (!$this->checkIpIsAllowed($mergedConditions['ips']) && !empty($mergedConditions['ips'])) {
             return false;
         }
 
         // Check if the current time is allowed
-        if (!$this->checkTimeIsAllowed($mergedConditions['times'])) {
+        if (!$this->checkTimeIsAllowed($mergedConditions['times']) && !empty($mergedConditions['times'])) {
             return false;
         }
 
@@ -487,7 +486,6 @@ class LaravelAclRepository
         $statements = $policies->map(function ($policy) {
             return $policy['definitions'];
         })->pluck('Statement');
-
         return $statements->filter(function ($statement) use ($resource, $action) {
             if ($action === '*') {
                 // regex match for resource in this anything::resource::action format
@@ -510,24 +508,32 @@ class LaravelAclRepository
      * @param $statements
      * @param Resource $resource
      * @param $key
+     * @param $user
      * @return bool
      */
-    private function scopeToResource($action, $statements, Resource $resource, $key): bool
+    private function scopeToResource($action, $statements, Resource $resource, $key, $user): bool
     {
+        if ($action === '*') {
+            return true;
+        }
         if ($action->is_scopeable) {
             // Iterate over the statements to check the 'Resource' field
-            $statements->contains(function ($statement) use ($resource, $key) {
+            $statements->contains(function ($statement) use ($resource, $key, $user) {
                 // Extract the resource and key list from the 'Resource' field
                 $resourceKeyList = explode('::', $statement['Resource']);
                 $keys = isset($resourceKeyList[2]) ? $resourceKeyList[2] : '';
-
                 // Convert the comma-separated list of keys into an array
                 $keysArray = explode(',', $keys);
-
-                // Check if the specific key exists in the array
-                if (!in_array($key, $keysArray)) {
-                    return false;
+                // Check if '@me' is in the keys array and if the key matches the user's key
+                if (in_array('@me', $keysArray)) {
+                    // Assuming $user->key is the field that stores the user's key
+                    if ($key === $user->getKey()) {
+                        return true;
+                    }
                 }
+
+                // If '@me' is not in the keys array, check if the key exists in the array
+                return in_array($key, $keysArray);
             });
         }
         return true;
@@ -682,7 +688,7 @@ class LaravelAclRepository
                 continue; // Skip if the attribute does not exist on the model
             }
 
-            $resourceValue = $resourceToCheck->$attribute;
+            $resourceValue = $resourceToCheck->getRawOriginal($attribute);
             $attributePass = false;
 
             foreach ($conditions as $condition) {
