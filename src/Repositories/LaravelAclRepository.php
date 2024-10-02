@@ -382,57 +382,39 @@ class LaravelAclRepository
             return false;
         }
 
-        // any statement with effect deny will deny access
-        if ($statements->contains('Effect', 'Reject')) {
-            return false;
-        }
+        // Separate Reject and Allow statements
+        $rejectStatements = $statements->filter(function ($statement) {
+            return $statement['Effect'] === 'Reject';
+        });
 
-        if (!$this->scopeToResource($action, $statements, $resource, $key, $user)) {
-            return false;
-        }
-        $mergedConditions = $this->getMergedConditions($statements);
+        $allowStatements = $statements->filter(function ($statement) {
+            return $statement['Effect'] === 'Allow';
+        });
 
-        // Check if the user's IP address is allowed
-        if (!$this->checkIpIsAllowed($mergedConditions['ips']) && !empty($mergedConditions['ips'])) {
-            return false;
-        }
-
-        // Check if the current time is allowed
-        if (!$this->checkTimeIsAllowed($mergedConditions['times']) && !empty($mergedConditions['times'])) {
-            return false;
-        }
-
-        // Check if the current day of the week is allowed
-        if (count($mergedConditions['daysOfWeek']) > 0) {
-            $currentDayOfWeek = Carbon::now()->format('l');
-            if (!in_array($currentDayOfWeek, $mergedConditions['daysOfWeek'])) {
-                return false;
-            }
-        }
-
-        // Check if the User-Agent is allowed
-        if (count($mergedConditions['User-Agent']) > 0) {
-            $userAgent = request()->header('User-Agent');
-
-            $isAllowed = false;
-            // Loop through each User-Agent condition to check for a match
-            foreach ($mergedConditions['User-Agent'] as $allowedUserAgent) {
-                if (strpos($userAgent, $allowedUserAgent) !== false) {
-                    $isAllowed = true;
-                    break; // Break the loop if a match is found
+        // Process Reject statements with conditions (precedence over Allow)
+        foreach ($rejectStatements as $rejectStatement) {
+            if ($this->scopeToResource($action, collect([$rejectStatement]), $resource, $key, $user)) {
+                $mergedConditions = $this->getMergedConditions(collect([$rejectStatement]));
+                // Check conditions
+                if ($this->matchesConditions($mergedConditions, $resourceToCheck, $action)) {
+                    return false; // Reject takes precedence if all conditions are met
                 }
             }
+        }
 
-            if (!$isAllowed) {
-                return false;
+        // Process Allow statements only if no Reject conditions matched
+        foreach ($allowStatements as $allowStatement) {
+            if ($this->scopeToResource($action, collect([$allowStatement]), $resource, $key, $user)) {
+                $mergedConditions = $this->getMergedConditions(collect([$allowStatement]));
+
+                // Check conditions
+                if ($this->matchesConditions($mergedConditions, $resourceToCheck, $action)) {
+                    return true; // Allow if no Reject conditions matched and all conditions pass
+                }
             }
         }
 
-        if ($action->is_scopeable && $resourceToCheck instanceof Model && isset($mergedConditions['resourceAttributes'])) {
-            return $this->checkAttributesMatched($mergedConditions['resourceAttributes'], $resourceToCheck);
-        }
-
-        return true;
+        return false; // Default deny if no allow conditions are met
     }
 
     private function getAllApplicablePolicies($user)
@@ -576,6 +558,57 @@ class LaravelAclRepository
 
         $mergedConditions = collect($mergedConditions);
         return $mergedConditions;
+    }
+
+    /**
+     * Check if conditions are met for the given statement.
+     */
+    private function matchesConditions($conditions, $resourceToCheck, $action): bool
+    {
+        // Check if the user's IP address is allowed or rejected
+        if (!$this->checkIpIsAllowed($conditions['ips']) && !empty($conditions['ips'])) {
+            return false;
+        }
+
+        // Check if the current time is allowed
+        if (!$this->checkTimeIsAllowed($conditions['times']) && !empty($conditions['times'])) {
+            return false;
+        }
+
+        // Check if the current day of the week is allowed
+        if (count($conditions['daysOfWeek']) > 0) {
+            $currentDayOfWeek = Carbon::now()->format('l');
+            if (!in_array($currentDayOfWeek, $conditions['daysOfWeek'])) {
+                return false;
+            }
+        }
+
+        // Check if the User-Agent is allowed
+        if (count($conditions['User-Agent']) > 0) {
+            $userAgent = request()->header('User-Agent');
+
+            $isAllowed = false;
+            // Loop through each User-Agent condition to check for a match
+            foreach ($conditions['User-Agent'] as $allowedUserAgent) {
+                if (strpos($userAgent, $allowedUserAgent) !== false) {
+                    $isAllowed = true;
+                    break; // Break the loop if a match is found
+                }
+            }
+
+            if (!$isAllowed) {
+                return false;
+            }
+        }
+
+        // Check resource attributes if action is scopeable
+        if ($action->is_scopeable && $resourceToCheck instanceof Model && isset($conditions['resourceAttributes'])) {
+            if (!$this->checkAttributesMatched($conditions['resourceAttributes'], $resourceToCheck)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function checkIpIsAllowed(array $ips): bool

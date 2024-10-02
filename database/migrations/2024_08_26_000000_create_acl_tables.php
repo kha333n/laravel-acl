@@ -51,42 +51,36 @@ class CreateAclTables extends Migration
             $table->id();
             $table->foreignId('role_id')->constrained('roles')->onDelete('cascade');
             $table->foreignId('policy_id')->constrained('policies')->onDelete('cascade');
-            $table->timestamps();
         });
 
         Schema::create('team_role', function (Blueprint $table) {
             $table->id();
             $table->foreignId('team_id')->constrained('teams')->onDelete('cascade');
             $table->foreignId('role_id')->constrained('roles')->onDelete('cascade');
-            $table->timestamps();
         });
 
         Schema::create('team_policy', function (Blueprint $table) {
             $table->id();
             $table->foreignId('team_id')->constrained('teams')->onDelete('cascade');
             $table->foreignId('policy_id')->constrained('policies')->onDelete('cascade');
-            $table->timestamps();
         });
 
         Schema::create('model_has_policy', function (Blueprint $table) {
             $table->id();
             $table->morphs('model');
             $table->foreignId('policy_id')->constrained('policies')->onDelete('cascade');
-            $table->timestamps();
         });
 
         Schema::create('model_has_role', function (Blueprint $table) {
             $table->id();
             $table->morphs('model');
             $table->foreignId('role_id')->constrained('roles')->onDelete('cascade');
-            $table->timestamps();
         });
 
         Schema::create('model_has_team', function (Blueprint $table) {
             $table->id();
             $table->morphs('model');
             $table->foreignId('team_id')->constrained('teams')->onDelete('cascade');
-            $table->timestamps();
         });
     }
 
