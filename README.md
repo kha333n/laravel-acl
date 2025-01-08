@@ -251,7 +251,10 @@ Explanation:
 #### Evaluation precedence:
 - It will first scope to resource.
 - If it is being applied to a scopeable action, it will consider the scope of resource else will skip this step.
-- Then it will check the Effect. If it is `Reject`, it will reject the action.
+- Then it will check the Effect. If it is `Reject`, it will check further conditions same like `Allow` and if matched
+  will reject.
+- **NOTE:** Reject will always take precedence over Allow. e.g.: If Allow from specific IP but Rejected from all IPs it
+  will reject from that ip too.
 - In case of `Allow`, it will check further conditions.
 - TeamMode: It might get a little confusing here. That's why focus on it.
     - If teams are not enabled in config, it will simply ignore this condition.
